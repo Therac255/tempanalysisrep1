@@ -1,0 +1,166 @@
+global:
+  namespace: prod-unlock-auto
+  secrets:
+    backend-content-secrets:
+      SECRET_KEY: SECRET_KEY
+    email:
+      EMAIL_HOST_USER: EMAIL_HOST_USER
+      EMAIL_HOST_PASSWORD: EMAIL_HOST_PASSWORD
+
+    backend-content-db:
+      POSTGRES_HOST: POSTGRES_HOST
+      POSTGRES_PORT: POSTGRES_PORT
+      POSTGRES_DB: POSTGRES_DB
+      POSTGRES_USER: POSTGRES_USER
+      POSTGRES_PASSWORD: POSTGRES_PASSWORD
+      DATABASE_URL: DATABASE_URL
+
+    backend-content-s3:
+      AWS_ACCESS_KEY_ID: AWS_ACCESS_KEY_ID
+      AWS_SECRET_ACCESS_KEY: AWS_SECRET_ACCESS_KEY
+
+    backend-content-celery-flower:
+      CELERY_FLOWER_USER: CELERY_FLOWER_USER
+      CELERY_FLOWER_PASSWORD: CELERY_FLOWER_PASSWORD
+
+  environments:
+    ENV: "PRODUCTION"
+    DEBUG: "1"
+
+    # AWS Storage
+    DEFAULT_FILE_STORAGE: "app.storages.MediaStorage"
+    STATICFILES_STORAGE: "app.storages.StaticStorage"
+    AWS_S3_ENDPOINT_URL: "https://minio.akhter.studio"
+    AWS_STORAGE_BUCKET_NAME: "prod-unlock-auto"
+    STATIC_URL: "https://minio.akhter.studio/prod-unlock-auto/static/"
+    MEDIA_URL: "https://minio.akhter.studio/prod-unlock-auto/media/"
+
+    # Cache
+    CACHE_DEFAULT_LOCATION: "redis://redis:6379/1"
+
+    # Modes
+    ALLOWED_HOSTS: "*"
+
+    # Timezone
+    TZ: "UTC"
+
+    # Gunicorn
+    GUNICORN_WORKERS: "2"
+    GUNICORN_TIMEOUT: "60"
+
+    # Celery
+    CELERY_BROKER_URL: "redis://redis:6379/2"
+    CELERY_CONCURENCY: "4"
+    CELERY_RESULT_BACKEND: "redis://redis:6379/3"
+    CELERY_LOG_LEVEL: "info"
+    CELERY_BEAT_LOG_LEVEL: "info"
+
+    # Sentry
+    SENTRY_DSN: "https://9334c03a870743de980bcaa5d78ceb5a@sentry.akhter.studio/13"
+
+    # Hosts (used inside entrypoint)
+    REDIS_HOST: "redis"
+    REDIS_PORT: "6379"
+
+    ORDER_RESERVE_PERIOD: 30
+
+    ORDER_STATUS_EXPIRE_COUNTDOWN: 1800
+
+    # A2P Beeline
+    A2P_BEELINE_LOGIN: ""
+    A2P_BEELINE_PASS: ""
+    A2P_SENDER_NAME: ""
+
+
+apps:
+- name: backend-content
+
+  # !!! Uncomment: set volumes here if you want to use !!!
+  # volumes:
+  # - name: app-data
+  #   storage: 2Gi
+  #   storageClassName: ebs-sc
+
+  # !!! Uncomment: set configs here if you want to use !!!
+  # configs:
+  # - name: app-config
+  #   configMapName: app-config
+
+  # !!! Uncomment: set ingress to expose the service !!!
+  ingress:
+    class: nginx  # or 'alb'
+    hosts:
+    - domain: content.unlock-auto.akhter.dev  # use null for alb
+      paths:
+      - prefixPath: /
+        servicePort: 8000  # set the service port
+    certificate:
+      secretName: cert-backend-content  # or create a secret with 'server.crt' and 'server.key' data, and remove the issuer for manual installation
+      issuer: letsencrypt-production  # or 'le-dns01' for DNS resolver
+
+    annotations:
+      # Nginx
+      nginx.ingress.kubernetes.io/enable-cors: "true"
+      nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+      nginx.ingress.kubernetes.io/configuration-snippet: |
+          more_set_headers "X-Robots-Tag: noindex, nofollow, nosnippet, noarchive";
+      # ALB
+      # alb.ingress.kubernetes.io/scheme: internet-facing
+      # alb.ingress.kubernetes.io/target-type: ip
+      # alb.ingress.kubernetes.io/certificate-arn: 'arn:aws:acm:eu-north-1:390567686706:certificate/701e8a42-49d5-4cc9-b566-c323e987fdf2'
+      # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+      # alb.ingress.kubernetes.io/ssl-redirect: '443'
+
+  service:
+    # !!! Uncomment: map volumes here if you want to use !!!
+    # volumes:
+    # - volumeName: app-data
+    #   mountPath: /data
+
+    # !!! Uncomment: map configs here if you want to use !!!
+    # configs:
+    # - configName: app-config
+    #   subPath: base.json
+    #   mountPath: /configs/base.json
+    replicas: 1
+    ports:
+    - portName: main
+      servicePort: 8000  # set the service port (used by ingress)
+      containerPort: 8000  # set the port mapping
+    # !!! Uncomment: change CMD command off a docker image if it is necessary
+    # command: <set-me>
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 128m
+      limits:
+        memory: 1024Mi
+        cpu: 512m
+    probes:
+      readiness:
+        tcpSocket:
+          port: 8000
+        initialDelaySeconds: 30
+        periodSeconds: 20
+      liveness:
+        tcpSocket:
+          port: 8000
+        initialDelaySeconds: 60
+        periodSeconds: 30
+  # !!! Uncomment: configure autoscaling
+  # autoscaling:
+  #   minReplicas: 1
+  #   maxReplicas: 10
+  #   metrics:
+  #   - type: Resource
+  #     resource:
+  #       name: cpu
+  #       target:
+  #         type: Utilization
+  #         averageUtilization: 200
+  #   - type: Resource
+  #     resource:
+  #       name: memory
+  #       target:
+  #         type: Utilization
+  #         averageUtilization: 200

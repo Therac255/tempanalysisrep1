@@ -1,0 +1,145 @@
+version: '3.10'
+
+
+networks:
+  default: { }
+
+
+volumes:
+  postgres-data: { }
+  redis-data: { }
+  media-data: { }
+  static-data: { }
+
+
+x-shared-environment: &shared-environment
+  # Environment
+  ENV: "DEV"
+
+  # Modes
+  DEBUG: "1"
+  ALLOWED_HOSTS: "*"
+
+  # Settings
+  DJANGO_SETTINGS_MODULE: "app.settings"
+
+  # Secret key
+  SECRET_KEY: "set-me"
+
+  # TLS
+  USE_TLS: "0"
+
+  # Static & Media
+  STATIC_URL: "/static/"
+  STATIC_ROOT: "/app/static"
+  MEDIA_URL: "/media/"
+  MEDIA_ROOT: "/app/media"
+
+  # Timezone
+  TZ: "UTC"
+
+  # db
+  DATABASE_URL: "psql://db-user:db-pass@local-postgres:5432/db-name"
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "db-name"
+  POSTGRES_USER: "db-user"
+  POSTGRES_PASSWORD: "db-pass"
+  POSTGRES_CONN_MAX_AGE: "1800"
+
+  # Email
+  EMAIL_HOST: "set-me"
+  EMAIL_HOST_USER: "set-me"
+  EMAIL_HOST_PASSWORD: "set-me"
+  EMAIL_PORT: "set-me"
+  DEFAULT_FROM_EMAIL: "set-me"
+
+  # redis
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+
+  # Cache
+  CACHE_DEFAULT_LOCATION: "redis://local-redis:6379/1"
+
+  # Gunicorn
+  GUNICORN_WORKERS: "2"
+  GUNICORN_TIMEOUT: "300"
+
+  PAYMENT_GW_RETURN_URL: "https://google.com"
+  SBERPAY_USERNAME: "sbertest_10"
+  SBERPAY_PASSWORD: "sbertest_0112345678"
+  SBERPAY_URL: "https://ecomtest.sberbank.ru/ecomm/gw/partner/api/v1/"
+  PAYMENT_PART_AMOUNT: 300000
+  DOMAIN_URL: "https//unlock.auto.akhter.dev/"
+
+  ORDER_STATUS_EXPIRE_COUNTDOWN: 1800
+
+  # A2P Beeline
+  A2P_BEELINE_LOGIN: "1740361"
+  A2P_BEELINE_PASS: "F3)1Tbai"
+  A2P_SENDER_NAME: "UNLOCK_LTD"
+
+
+x-base-image: &base-image
+  restart: always
+  environment:
+    <<: *shared-environment
+  networks:
+    default: { }
+  logging:
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+
+services:
+  redis:
+    <<: *base-image
+    hostname: redis
+    image: redis:6.2.6
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+
+  postgres:
+    <<: *base-image
+    image: "postgres:14.1-alpine"
+    hostname: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5456:5432"
+    environment:
+      POSTGRES_DB: "db-name"
+      POSTGRES_USER: "db-user"
+      POSTGRES_PASSWORD: "db-pass"
+
+  app: &app
+    <<: *base-image
+    hostname: app
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - PYTHON_VERSION=3.10
+    volumes:
+      - ./src:/app/src
+      - media-data:/app/media
+      - static-data:/app/static
+    command: start.sh
+    ports:
+      - 8000:8000
+    depends_on:
+      - postgres
+      - redis
+  celery:
+    <<: *base-image
+    build:
+      context: .
+      args:
+        - PYTHON_VERSION=3.10
+    command: celery -A app.celery worker --loglevel=INFO
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      - redis
